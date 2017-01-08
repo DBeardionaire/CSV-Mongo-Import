@@ -92,6 +92,8 @@ const main = () => {
                             for (let i = 0; i < data.length; i++) {
                                 // IF E_MAIL_ADDR &| PHone                        
                                 delete data[i][''];
+                                let ogdt = data[i]['ORIG_DTE'] = getJsDateFromExcel(data[i]['ORIG_DTE']); 
+                                let exdt = data[i]['EXPR_DTE'] = getJsDateFromExcel(data[i]['EXPR_DTE']);
                                 updateDoc(db, data[i], (i == data.length - 1), () => {
                                     console.log('----TEST-----', i)
                                 });
@@ -107,52 +109,61 @@ const main = () => {
         }
     }); //RUN
 }
-main();
-const importJson = (db, folder = jsonInputFolder) => {
 
-    fs.readdir(folder, (err, files) => {
-        if (err) {
-            return console.log(err)
+const importJson = () => {
+    run(function* seq() {
+        try {
+            console.log('readdir: ', jsonInputFolder);
+            var files = yield fs.readdir.bind(fs, jsonInputFolder);
+            // MongoClient 
+            MongoClient.connect(url, function (err, db) {
+                assert.equal(null, err);
+
+                for (let file of files) {
+                    console.log(file);
+                    var stream = getStream(jsonInputFolder + file)
+                        .pipe(es.mapSync((data) => {
+                            // Loop
+                            for (let i = 0; i < data.length; i++) {
+                                // IF E_MAIL_ADDR &| PHone                        
+                                // console.log(data[i].E_MAIL_ADDR);
+                                delete data[i][''];
+                                let ogdt = data[i]['ORIG_DTE'] = getJsDateFromExcel(data[i]['ORIG_DTE']); 
+                                let exdt = data[i]['EXPR_DTE'] = getJsDateFromExcel(data[i]['EXPR_DTE']);
+                                // Call Update
+                                updateDoc(db, data[i], (i == data.length - 1), () => {
+                                    console.log('----TEST-----', i)
+                                });
+                            }
+                        }));
+
+                }
+                console.log('END MongoClient Loop')
+            });
+
+        } catch (ex) {
+            return console.log(ex);
         }
+    }); //RUN
+}
 
-        // var file = [].push(files[1]);
-        // console.log(file);
 
-        var files = files.filter((file) => {
-            if (!file.includes('.json')) {
-                console.log('ERROR not .json file');
-            }
-            return (file.includes('.json'));
-        });
-        // in sync
-        for (let f = 0; f < files.length; f++) {
-            // sequentialCallback();
-            getStream(files[f])
-                .pipe(es.mapSync((data) => {
-                    // console.log(data[10].E_MAIL_ADDR);
-                    for (let i = 0; i < data.length; i++) {
-                        // IF E_MAIL_ADDR &| PHone                        
-                        delete data[i][''];
-                        updateDoc(db, data[i], (i == data.length - 1), () => {
-                            console.log('----TEST-----', i)
-                        });
-                    }
-                    // // Move to imported folder
-                    // move(jsonInputFolder + files[f], jsonImportedFolder + files[f], (err) => {
-                    //     console.log(err ? 'ERROR: ' + err : "Moved: " + files[f]);
-                    // });
-                }));
-        } // END FOREACH
+const getJsDateFromExcel = (excelDate) => {
 
-    })
+    // JavaScript dates can be constructed by passing milliseconds
+    // since the Unix epoch (January 1, 1970) example: new Date(12312512312);
 
-};
+    // 1. Subtract number of days between Jan 1, 1900 and Jan 1, 1970, plus 1 (Google "excel leap year bug")             
+    // 2. Convert to milliseconds.
+    // let dt = new Date((excelDate - (25567 + 1)) * 86400 * 1000);
+    return new Date((excelDate - (25567 + 1)) * 86400 * 1000);
 
+}
 
 const getStream = (file) => {
-    let jsonData = file ?
-        jsonInputFolder + file :
-        jsonInputFolder + 'RE_Licensee_2501_Addr_File1_0117.json',
+    let jsonData = //file ?
+        jsonInputFolder + file,
+        //: jsonInputFolder + 'RE_Licensee_2501_Addr_File1_0117.json',
         stream = fs.createReadStream(jsonData, {
             encoding: 'utf8'
         }),
@@ -163,13 +174,27 @@ const getStream = (file) => {
 
 
 const updateDoc = function (db, doc, isLastUpdate, callback) {
+    
+    // Set update
+    let up = {
+        $set: doc
+    };
+    
+    // // Set dates
+    // up = {
+    //     $set: {
+    //         "ORIG_DTE": doc.ORIG_DTE,
+    //         "EXPR_DTE": doc.EXPR_DTE
+    //     }
+    // }
+
     // Get the collection
     var col = db.collection('REBase');
     col.updateOne({
         LIC_NBR: doc.LIC_NBR
-    }, {
-        $set: doc
-    }, {
+    }, 
+        up, 
+    {
         upsert: true
     }, function (err, r) {
         assert.equal(null, err);
@@ -186,54 +211,6 @@ const updateDoc = function (db, doc, isLastUpdate, callback) {
 
 };
 
-
-const insertDocument = function (db, callback) {
-    db.collection('restaurants').insertOne({
-        "address": {
-            "street": "2 Avenue",
-            "zipcode": "10075",
-            "building": "1480",
-            "coord": [-73.9557413, 40.7720266]
-        },
-        "borough": "Manhattan",
-        "cuisine": "Italian",
-        "grades": [{
-                "date": new Date("2014-10-01T00:00:00Z"),
-                "grade": "A",
-                "score": 11
-            },
-            {
-                "date": new Date("2014-01-16T00:00:00Z"),
-                "grade": "B",
-                "score": 17
-            }
-        ],
-        "name": "Vella",
-        "restaurant_id": "41704620"
-    }, function (err, result) {
-        assert.equal(err, null);
-        console.log("Inserted a document into the restaurants collection.");
-        callback();
-    });
-};
-
-var updateRestaurants = function (db, callback) {
-    db.collection('restaurants').replaceOne({
-            "restaurant_id": "41704620"
-        }, {
-            "name": "Vella 2",
-            "address": {
-                "coord": [-73.9557413, 40.7720266],
-                "building": "1480",
-                "street": "2 Avenue",
-                "zipcode": "10075"
-            }
-        },
-        function (err, results) {
-            console.log(results);
-            callback();
-        });
-};
 
 
 function callbackToPromise(method, ...args) {
@@ -272,20 +249,10 @@ function sequentialCallback(...fns) {
 //     db.yourCollection.remove({ "_id": {"$in": doc.dups }});
 // });
 
-// db.test.findAndModify({
-// ... query: {"id": "test_object"},
-// ... update: {"$set": {"some_key.param2": "val2_new", "some_key.param3": "val3_new"}},
-// ... new: true
-// ... })
-// {
-//     "_id" : ObjectId("56476e04e5f19d86ece5b81d"),
-//     "id" : "test_object",
-//     "some_key" : {
-//         "param1" : "val1",
-//         "param2" : "val2_new",
-//         "param3" : "val3_new"
-//     }
-// }
+// remove duplicates
+// db.myCollection.find({}, {myCustomKey:1}).sort({_id:1}).forEach(function(doc){
+//     db.myCollection.remove({_id:{$gt:doc._id}, myCustomKey:doc.myCustomKey});
+// })
 
 //
 // db.collection.update(  { _id:...} , { $set: { 'key.another_key' : new_info  } } );
@@ -294,3 +261,44 @@ function sequentialCallback(...fns) {
 //   const str = `profile.${prop}`;
 //   db.collection.update( { _id:...}, { $set: { [str]: newVal } } );
 // }
+
+
+// const importJson1 = (db, folder = jsonInputFolder) => {
+
+//     fs.readdir(folder, (err, files) => {
+//         if (err) {
+//             return console.log(err)
+//         }
+
+//         // var file = [].push(files[1]);
+//         // console.log(file);
+
+//         var files = files.filter((file) => {
+//             if (!file.includes('.json')) {
+//                 console.log('ERROR not .json file');
+//             }
+//             return (file.includes('.json'));
+//         });
+//         // in sync
+//         for (let f = 0; f < files.length; f++) {
+//             // sequentialCallback();
+//             getStream(files[f])
+//                 .pipe(es.mapSync((data) => {
+//                     // console.log(data[10].E_MAIL_ADDR);
+//                     for (let i = 0; i < data.length; i++) {
+//                         // IF E_MAIL_ADDR &| PHone                        
+//                         delete data[i][''];
+//                         updateDoc(db, data[i], (i == data.length - 1), () => {
+//                             console.log('----TEST-----', i)
+//                         });
+//                     }
+//                     // // Move to imported folder
+//                     // move(jsonInputFolder + files[f], jsonImportedFolder + files[f], (err) => {
+//                     //     console.log(err ? 'ERROR: ' + err : "Moved: " + files[f]);
+//                     // });
+//                 }));
+//         } // END FOREACH
+
+//     })
+
+// };
