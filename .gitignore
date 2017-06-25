@@ -33,8 +33,10 @@ jspm_packages
 json/input
 json/imported
 csv/input
-csv/output
+csv/export
 csv/processed
+csv/unsubscribed/input
+csv/unsubscribed/processed
 .vscode
 
 # Optional npm cache directory

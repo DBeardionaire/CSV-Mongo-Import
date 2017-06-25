@@ -16,8 +16,13 @@ const conn = MongoClient.connect(url);
 // FOLDERS
 const inputFolder = './csv/input/';
 const csvProcessedFolder = './csv/processed/';
+const csvExportFolder = './csv/export/';
 const jsonInputFolder = './json/input/';
 const jsonImportedFolder = './json/imported/';
+const unsubFolder = {
+    input: './csv/unsubscribed/input/',
+    processed: './csv/unsubscribed/processed/'
+}
 
 
 const importJson = () => {
@@ -147,3 +152,115 @@ const csv2json = () => {
 };
 
 // csv2json();
+
+const removeUnsubscribers = () => {
+    // process input files
+    fs.readdir(unsubFolder.input, (err, files) => {
+        // files.forEach(file => {
+        var file = files[0];
+        console.log(file);
+
+        if (!file.includes('.csv')) {
+            return console.log('ERROR .csv');
+        }
+
+        var parser = asyncParse({
+            // columns: true,
+            delimiter: ','
+        });
+        let newFilename = jsonInputFolder + file.replace('.csv', '.json')
+        var input = fs.createReadStream(unsubFolder.input + '/' + file);
+
+        // // Write to new .json file
+        // var writer = fs.createWriteStream(newFilename, {
+        //     flags: 'a', // 'a' means appending (old data will be preserved)
+        //     encoding: 'utf-8'
+        // })
+
+        let upsertedCount = 0;
+        let count = 0;
+        // Use the writable stream api
+        parser.on('readable', function () {
+            while (record = parser.read()) {
+                let name = record[0];
+                let email = record[1];
+                console.log(email);
+                if (email) {
+                    conn.then(db => {
+                        // Get the collection
+                        const col = db.collection('REUnsubscribers');
+                        let up = {
+                            $set: {
+                                'Email': email,
+                                'Name': name
+                            }
+                        };
+                        let updt = col.updateOne({
+                                'Email': email
+                            },
+                            up, {
+                                upsert: true
+                            });
+
+                        updt.then(function (data) {
+                            count++;
+                            upsertedCount += data.upsertedCount;
+                            console.log(`${count}: Upserted count so far ${upsertedCount}`);
+                        }, (err) => console.log('Error:', err));
+
+                    });
+                }
+                // writer.write(JSON.stringify(record) + '\n') // append string to your file    
+            }
+        });
+        // Catch any error
+        parser.on('error', function (err) {
+            console.log(err.message);
+        });
+
+        parser.on('finish', () => {
+            parser.end()
+            console.log('PARSER FINISH *** ', file);
+            // // console.log("The file was saved! ", newFilename);
+            move(unsubFolder.input + '/' + file, unsubFolder.processed + '/' + file, (err) => {
+                console.log(err ? 'ERROR: ' + err : "Moved: " + file);
+            });
+        })
+
+        input.pipe(parser);
+
+        // return;
+        // }); // foreach
+
+    })
+}
+
+// removeUnsubscribers();
+
+const exportList = (list = 'Expire-Sept-30-2017') => {
+    console.log('Start Export', list);
+    conn.then(db => {
+        const col = db.collection(list);
+        let ppl = col.find({}).map(data => {
+            return {
+                Name: data.Name,
+                Email: data.Email
+            }
+        });
+
+        let newFile = csvExportFolder + list + '.csv';
+        // Write to new .json file
+        var writer = fs.createWriteStream(newFile, {
+            flags: 'a', // 'a' means appending (old data will be preserved)
+            encoding: 'utf-8'
+        });
+
+        ppl.forEach((data) => {
+            let row = `${data.Name}, ${data.Email}\n`;
+            console.log(row);
+            writer.write(row);
+        });
+    });
+}
+
+// exportList();
