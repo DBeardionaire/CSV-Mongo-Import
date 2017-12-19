@@ -15,7 +15,9 @@
     "async": "^2.4.1",
     "csv": "^1.1.1",
     "event-stream": "^3.3.4",
-    "mongodb": "^2.2.29"
+    "mongodb": "^2.2.29",
+    "mongoose": "^4.13.7",
+    "p-queue": "^2.3.0"
   },
   "devDependencies": {}
 }

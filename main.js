@@ -2,16 +2,42 @@ const fs = require('fs');
 const async = require('async');
 const parse = require('csv-parse/lib/sync');
 const asyncParse = require('csv-parse/lib');
-const JSONStream = require('JSONStream');
 const es = require('event-stream');
+
+const JSONStream = require('JSONStream');
+// const getStream = require('./lib/getJsonStream');
 const move = require('./lib/move');
 const getJsDateFromExcel = require('./lib/getJsDateFromExcel');
 const run = require('./lib/runner');
 
+const queue = require('./lib/queue');
+
 // MONGO
-const MongoClient = require('mongodb').MongoClient;
-const url = 'mongodb://localhost:27017/RS101';
-const conn = MongoClient.connect(url);
+// const MongoClient = require('mongodb').MongoClient;
+// const url = 'mongodb://localhost:27017/RS101';
+const url = 'mongodb://localhost:C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==@localhost:10255/RS101?ssl=true';
+
+// const conn = MongoClient.connect(url);
+const mongoose = require('mongoose')
+
+// mongoose.Promise = global.Promise;
+const conn = mongoose.connect(url, {
+    // config: { autoIndex: false },
+    useMongoClient: true,
+})
+    .then((err) => {
+        if (err) {
+            console.log('Could NOT connect to database: ', err);
+        } else {
+            console.log('Connected to database');
+        }
+    });
+
+// const conn = mongoose.connect(url, { config: { autoIndex: false } });
+//mongoose.connect('mongodb://localhost/test', { useMongoClient: true });
+
+const publicUserSchema = require('./lib/schema');
+const PublicUser = mongoose.model('PublicUser', publicUserSchema);
 
 // FOLDERS
 const inputFolder = './csv/input/';
@@ -24,6 +50,13 @@ const unsubFolder = {
     processed: './csv/unsubscribed/processed/'
 }
 
+// Book.insertMany(rawDocuments)
+//     .then(function(mongooseDocuments) {
+//          /* ... */
+//     })
+//     .catch(function(err) {
+//         /* Error handling */
+//     });
 
 const importJson = () => {
     run(function* seq() {
@@ -31,59 +64,162 @@ const importJson = () => {
             console.log('start');
             let files = yield fs.readdir.bind(fs, jsonInputFolder);
 
-            conn.then(db => {
-                // Get the collection
-                const col = db.collection('REBase');
-                let upsertedCount = 0;
-                let count = 0;
-                let file = files[0];
-                console.log(`Start: ${file}`);
+            // conn.then(db => {
+            // Get the collection
+            // const col = db.collection('REBase');
+            let upsertedCount = 0;
+            let count = 0;
+            // files.forEach(file => {
+            let file = files[0];
 
-                let stream = getStream(file)
-                    .pipe(es.mapSync((data) => {
-                        let ogdt = data['ORIG_DTE'] = getJsDateFromExcel(data['ORIG_DTE']);
-                        let exdt = data['EXPR_DTE'] = getJsDateFromExcel(data['EXPR_DTE']);
-                        let doc = data;
-                        // Set update
-                        let up = {
-                            $set: doc
-                        };
-                        if (doc.LIC_NBR) { //&& count < 1
-                            let updt = col.updateOne({
-                                    LIC_NBR: doc.LIC_NBR
-                                },
-                                up, {
-                                    upsert: true
-                                });
+            console.log(`Start: ${file}`);
+            let docs = []
 
-                            updt.then(function (data) {
-                                upsertedCount += data.upsertedCount;
-                            });
+            let stream = getStream(file)
+                .pipe(es.mapSync((data) => {
+                    // let ogdt = data['ORIG_DTE'] = getJsDateFromExcel(data['ORIG_DTE']);
+                    // let exdt = data['EXPR_DTE'] = getJsDateFromExcel(data['EXPR_DTE']);
+                    let doc = mapToPublicUser(data);
+                    count++;
 
-                            count++;
-                            if (count % 100 === 0) {
-                                console.log(`${count}: Upserted count so far ${upsertedCount}`);
-                                // count = 0;
-                            }
-                        } else {
-                            count++
-                        }
+                    // if (doc.LIC_NBR) {
 
-                    }));
-                stream.on('close', () => {
-                    console.log(`${file} Stream Done | upsertedCount: ${upsertedCount}`)
-                    move(jsonInputFolder + '/' + file, jsonImportedFolder + '/' + file, (err) => {
-                        console.log(err ? 'ERROR: ' + err : "Moved: " + file);
-                    });
+                    let User = new PublicUser(doc);
+                    // User.save(function (err, res) {
+                    //     if (err) return console.log(err);
+                    // })
+
+                    const promise = User.save();
+                    Promise.all([promise]).then(function (err, res) {
+                        if (err) return console.log(err);
+                    })
+
+                    //     .then(dt => console.log(dt))
+                    //     .catch(err => console.log(err));
+
+                    // PublicUser.create(doc, function (err, usr) {
+                    //     if (err) return console.log(err);
+                    //     // saved!
+                    // })
+
+                    if (count % 100 === 0) {
+                        console.log(`${count}: Upserted count so far ${upsertedCount}`);
+                    }
+                    // } // IF LIC_NBR
+                }));
+            stream.on('close', () => {
+                console.log(`${file} Stream Done | upsertedCount: ${upsertedCount}`)
+                move(jsonInputFolder + '/' + file, jsonImportedFolder + '/' + file, (err) => {
+                    console.log(err ? 'ERROR: ' + err : "Moved: " + file);
                 });
             });
+            // }); // foreach
+            // });
         } catch (ex) {
             return console.log(ex);
         }
     }); //RUN
 }
 
-// importJson();
+const mapToPublicUser = (doc) => {
+    return {
+        License_Number: doc.LIC_NBR,
+        Name: `${doc.FRST_NME} ${doc.SURNME}`,
+        Email: doc.E_MAIL_ADDR.toLowerCase(),
+        First_Name: doc.FRST_NME,
+        Last_Name: doc.SURNME,
+        Phone: doc.PHNE_NBR,
+        County: doc['CNTY DESC'],
+        License_Type: doc.MOD_DESC,
+        License_Status: doc.LIC_SEC_STA_DESC,
+        Expire_Date: getJsDateFromExcel(doc.EXPR_DTE),
+        Origin_Date: getJsDateFromExcel(doc.ORIG_DTE),
+        Address: {
+            Street: [
+                doc.STR_ADDR_NBR,
+                doc.ADDR_LINE1,
+                doc.ADDR_LINE2,
+                doc.ADDR_LINE3,
+            ].join(' ').trim(),
+            City: doc.ADDR_CTY,
+            State: doc.ST_CDE,
+            Zip: doc.ADDR_ZIP
+        }
+    }
+}
+
+// const importJson = () => {
+//     run(function* seq() {
+//         try {
+//             console.log('start');
+//             let files = yield fs.readdir.bind(fs, jsonInputFolder);
+
+//             conn.then(db => {
+//                 // Get the collection
+//                 const col = db.collection('REBase');
+//                 let upsertedCount = 0;
+//                 let count = 0;
+//                 // files.forEach(file => {
+//                 let file = files[0];
+
+//                 console.log(`Start: ${file}`);
+
+//                 let stream = getStream(file)
+//                     .pipe(es.mapSync((data) => {
+//                         let ogdt = data['ORIG_DTE'] = getJsDateFromExcel(data['ORIG_DTE']);
+//                         let exdt = data['EXPR_DTE'] = getJsDateFromExcel(data['EXPR_DTE']);
+//                         let doc = data;
+//                         // Set update
+//                         let up = {
+//                             $set: doc
+//                         };
+//                         count++;
+
+//                         if (doc.LIC_NBR) {
+//                             let updt = col.updateOne({
+//                                 LIC_NBR: doc.LIC_NBR
+//                             },
+//                                 up, {
+//                                     upsert: true
+//                                 });
+
+//                             // queue.add(updt.then((data) => {
+//                             //         upsertedCount += data.upsertedCount;
+//                             //         if (count % 100 === 0) {
+//                             //             console.log(`${count}: Upserted count so far ${upsertedCount}`);
+//                             //             // count = 0;
+//                             //         }
+//                             //     })
+//                             //     // .catch(err => console.log(`${err}`))
+//                             // )
+//                             // .then(data => console.log(`${data}`))
+//                             // .catch(err => console.log(`${err}`))
+//                             queue(updt.then(function (data) {
+//                                 upsertedCount += data.upsertedCount;
+//                             })
+//                             );
+
+//                             if (count % 100 === 0) {
+//                                 console.log(`${count}: Upserted count so far ${upsertedCount}`);
+//                                 // count = 0;
+//                             }
+//                         } // IF LIC_NBR
+//                     }));
+//                 stream.on('close', () => {
+//                     console.log(`${file} Stream Done | upsertedCount: ${upsertedCount}`)
+//                     move(jsonInputFolder + '/' + file, jsonImportedFolder + '/' + file, (err) => {
+//                         console.log(err ? 'ERROR: ' + err : "Moved: " + file);
+//                     });
+//                 });
+//                 // }); // foreach
+//             });
+//         } catch (ex) {
+//             return console.log(ex);
+//         }
+//     }); //RUN
+// }
+
+importJson();
 
 const getStream = (file) => {
     let jsonData = file ?
@@ -92,9 +228,10 @@ const getStream = (file) => {
         stream = fs.createReadStream(jsonData, {
             encoding: 'utf8'
         }),
-        parser = JSONStream.parse(); //'*'
+        parser = JSONStream.parse('RE PRR Licensee\'s Address Phone.*'); //'*'
     return stream.pipe(parser);
 };
+
 
 
 // Step 1 after py script
@@ -196,8 +333,8 @@ const removeUnsubscribers = () => {
                             }
                         };
                         let updt = col.updateOne({
-                                'Email': email
-                            },
+                            'Email': email
+                        },
                             up, {
                                 upsert: true
                             });

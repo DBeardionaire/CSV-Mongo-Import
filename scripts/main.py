@@ -82,7 +82,7 @@ def main():
 
 
 def xls_to_csv():
-	filename = "C:\FileLoader\RE0617\DRE_Licensee_2501_Addr_File5_0517.xls" 
+	filename = "C:\FileLoader\RE1217\1117DRELicensee2501EmailPhoneT-Z.xlsx"
 	# filename = raw_input("Enter the path to the .xls filename -> ")
 
 	if os.path.isfile(filename):
@@ -103,5 +103,5 @@ def xls_to_csv():
 	else:
 		print "Sorry, that was not a valid filename"
 
-# main()
-xls_to_csv()
+main()
+# xls_to_csv()
