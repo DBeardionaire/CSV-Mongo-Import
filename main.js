@@ -333,33 +333,6 @@ const tagUnsubscribers = () => {
     })
 }
 
-// Depricated
-const exportList = (list = 'Expire-Mar-31-2018') => {
-    console.log('Start Export', list);
-    conn.then(db => {
-        const col = db.collection(list);
-        let ppl = col.find({}).map(data => {
-            return {
-                Name: data.Name,
-                Email: data.Email
-            }
-        });
-
-        let newFile = csvExportFolder + list + '.csv';
-        // Write to new .json file
-        var writer = fs.createWriteStream(newFile, {
-            flags: 'a', // 'a' means appending (old data will be preserved)
-            encoding: 'utf-8'
-        });
-
-        ppl.forEach((data) => {
-            let row = `${data.Name}, ${data.Email}\n`;
-            console.log(row);
-            writer.write(row);
-        });
-    });
-}
-
 const exportListfromDB = (list = 'Broker-Expire-Mar-31-2018') => {
     console.log('Start Export', list);
 
