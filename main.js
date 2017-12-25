@@ -45,7 +45,7 @@ const conn = mongoose.connect(url, options)
             console.log('Could NOT connect to database: ', err);
         } else {
             console.log('Connected to database');
-            exportListfromDB();
+            // exportListfromDB();
             // tagUnsubscribers();
         }
     });
@@ -333,37 +333,36 @@ const tagUnsubscribers = () => {
     })
 }
 
-const exportListfromDB = (list = 'Broker-Expire-Mar-31-2018') => {
+const exportListfromDB = (list = 'Sales-Expire-Mar-31-2018') => {
     console.log('Start Export', list);
 
     const batch = 5000;
     let writtenEmails = [];
     let num = 1;
+    let counts = { 
+        [num]: 0
+    }
     const getfileName = () => `${csvExportFolder}${list}_${num}.csv`
     // Write to new .json file
     const getWriter = () => fs.createWriteStream(getfileName(), {
         flags: 'w', // 'a' means appending (old data will be preserved)
         encoding: 'utf-8'
     });
-    let writer = getWriter();
-    let currFileName = getfileName(); 
-    let counts = { 
-        [currFileName]: 0
-    }
+    
     const run = (skipNum = 0) => {
+        let writer = getWriter();
         var cursor = PublicUser.find({
             Unsubscribe: false
         })
             // .where()
             .and([
-                {
-                    Expire_Date: new Date("2018-03-31T16:00:00.000-08:00"),
-                },
+                { Expire_Date: new Date("2018-03-31T16:00:00.000-08:00") },
+                { License_Type: "Sales Associate" },
             ])
-            .or([
-                { License_Type: "Broker Sales" },
-                { License_Type: "Broker" }
-            ])
+            // .or([
+            //     { License_Type: "Broker Sales" },
+            //     { License_Type: "Broker" }
+            // ])
             .skip(skipNum)
             .limit(batch) // cant be used w/distinct
             .select('Name Email') // cant be used w/distinct
@@ -380,22 +379,19 @@ const exportListfromDB = (list = 'Broker-Expire-Mar-31-2018') => {
             // console.log(row);
             writtenEmails.push(doc.Email);
             writer.write(row);
-            counts[currFileName]++;
+            counts[num]++;
         });
 
         cursor.on('close', function () {
-            console.log('END Export', currFileName);
-            let check = counts[currFileName]
+            console.log('END Export', getfileName());
+            let check = counts[num]
             if (check && check > 0) {
                 num++;
                 writer = getWriter();
-                currFileName = getfileName(); 
-                counts[currFileName] = 0;
+                counts[num] = 0;
                 run(writtenEmails.length);
             }
         });
     }
     run();
 }
-
-// exportList();
