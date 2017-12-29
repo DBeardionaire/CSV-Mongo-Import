@@ -37,6 +37,9 @@ csv/export
 csv/processed
 csv/unsubscribed/input
 csv/unsubscribed/processed
+xlsx/input
+xlsx/output
+xlsx/processed
 .vscode
 
 # Optional npm cache directory

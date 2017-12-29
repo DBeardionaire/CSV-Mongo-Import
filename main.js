@@ -8,6 +8,7 @@ const JSONStream = require('JSONStream');
 const move = require('./lib/move');
 const getJsDateFromExcel = require('./lib/getJsDateFromExcel');
 const run = require('./lib/runner');
+const node_xj = require("xlsx-to-json");
 
 // FOLDERS
 const inputFolder = './csv/input/';
@@ -19,6 +20,9 @@ const unsubFolder = {
     input: './csv/unsubscribed/input/',
     processed: './csv/unsubscribed/processed/'
 }
+const xlsxInputFolder = './xlsx/input/';
+const xlsxOutputFolder = './xlsx/output/';
+const xlsxProcessedFolder = './xlsx/processed/';
 
 // MONGO
 // const MongoClient = require('mongodb').MongoClient;
@@ -45,8 +49,8 @@ const conn = mongoose.connect(url, options)
             console.log('Could NOT connect to database: ', err);
         } else {
             console.log('Connected to database');
+            importJsonX();
             // exportListfromDB();
-            // tagUnsubscribers();
         }
     });
 
@@ -69,7 +73,7 @@ const importJson = () => {
                 // let file = files[0];
                 console.log(`Start: ${file}`);
 
-                let stream = getStream(file)
+                let stream = getStream(jsonInputFolder + file)
                     .pipe(es.mapSync((data) => {
                         let doc = mapToPublicUser(data);
 
@@ -168,12 +172,12 @@ const mapToPublicUser = (doc) => {
 
 const getStream = (file) => {
     let jsonData = file ?
-        jsonInputFolder + file :
+        file :
         jsonInputFolder + 'DRE_Licensee_2501_Addr_File1_0517.json',
         stream = fs.createReadStream(jsonData, {
             encoding: 'utf8'
         }),
-        parser = JSONStream.parse('RE PRR Licensee\'s Address Phone.*'); //'*' // 'RE PRR Licensee\'s Address Phone.*'
+        parser = JSONStream.parse('*'); //'*' // 'RE PRR Licensee\'s Address Phone.*'
     return stream.pipe(parser);
 };
 
@@ -271,12 +275,12 @@ const uploadUnsubscribers = () => {
                         if (doc && doc.Email) {
                             PublicUser.update({
                                 Email: doc.Email,
-                            }, 
-                            { Unsubscribe: true }, 
-                            { multi: true, runValidators: true }, function (error, raw) {
-                                if (error) return console.log(error)
-                                console.log('The raw response from Mongo was ', raw);
-                            });
+                            },
+                                { Unsubscribe: true },
+                                { multi: true, runValidators: true }, function (error, raw) {
+                                    if (error) return console.log(error)
+                                    console.log('The raw response from Mongo was ', raw);
+                                });
                         }
                     })
                 }
@@ -323,12 +327,12 @@ const tagUnsubscribers = () => {
         unsubs.forEach(unsub => {
             PublicUser.update({
                 Email: unsub.Email,
-            }, 
-            { Unsubscribe: true }, 
-            { multi: true, runValidators: true }, function (error, raw) {
-                if (error) return console.log(error)
-                console.log('The raw response from Mongo was ', raw);
-            })
+            },
+                { Unsubscribe: true },
+                { multi: true, runValidators: true }, function (error, raw) {
+                    if (error) return console.log(error)
+                    console.log('The raw response from Mongo was ', raw);
+                })
         }) // Foreach
     })
 }
@@ -339,7 +343,7 @@ const exportListfromDB = (list = 'Sales-Expire-Mar-31-2018') => {
     const batch = 5000;
     let writtenEmails = [];
     let num = 1;
-    let counts = { 
+    let counts = {
         [num]: 0
     }
     const getfileName = () => `${csvExportFolder}${list}_${num}.csv`
@@ -348,7 +352,7 @@ const exportListfromDB = (list = 'Sales-Expire-Mar-31-2018') => {
         flags: 'w', // 'a' means appending (old data will be preserved)
         encoding: 'utf-8'
     });
-    
+
     const run = (skipNum = 0) => {
         let writer = getWriter();
         var cursor = PublicUser.find({
@@ -394,4 +398,91 @@ const exportListfromDB = (list = 'Sales-Expire-Mar-31-2018') => {
         });
     }
     run();
+}
+
+const xlsx2Json = () => {
+    let files = fs.readdirSync(xlsxInputFolder);
+
+    async.eachLimit(files, 1, function (file, cb) {
+        let input = xlsxInputFolder + file
+        let output = xlsxOutputFolder + file.replace(".xlsx", "_output.json")
+
+        node_xj({
+            input,
+            output,
+            // sheet: "sheetname"  // specific sheetname 
+        }, function (err, result) {
+            if (err) {
+                console.error(err);
+            } else if (result && result.length) {
+                console.log(result.length);
+            }
+            cb();
+        });
+    }, function (res) {
+        console.log(res);
+        async.each(files, function (file) {
+            move(xlsxInputFolder + file, xlsxProcessedFolder + file, (err) => {
+                console.log(err ? 'ERROR: ' + err : "Moved: " + file);
+            });
+        })
+    })
+}
+
+const importJsonX = () => {
+    try {
+        let files = fs.readdirSync(xlsxOutputFolder);
+
+        async.eachLimit(files, 1, function (file, cb) {
+            console.log(`importing: ${file}`);
+            let insertedCount = 0;
+            let upsertedCount = 0;
+            let count = 0;
+
+            let stream = getStream(xlsxOutputFolder + file)
+                .pipe(es.mapSync((data) => {
+                    let doc = mapToPublicUser(data);
+
+                    isUnsubscriber(doc).then(isUnsub => {
+                        if (doc && doc.License_Number && doc.Email) {
+                            doc.Unsubscribe = isUnsub ? true : false;
+
+                            PublicUser.findOneAndUpdate(
+                                {
+                                    License_Number: doc.License_Number,
+                                    //Email: doc.Email 
+                                }, // find by
+                                doc,
+                                { upsert: true, new: false, runValidators: true },
+                                function (err, user) { // callback
+                                    count++;
+                                    if (err) {
+                                        return console.log(err);
+                                    } else if (user && !user.isNew) {
+                                        upsertedCount++
+                                    } else {
+                                        insertedCount++;
+                                    }
+                                    if (count % 100 === 0) {
+                                        console.log(`${count}: Inserted: ${insertedCount} | Upserted ${upsertedCount}`);
+                                    }
+                                }
+                            )
+                        }
+                    })
+                }));
+
+            stream.on('close', () => {
+                console.log(`${file} Stream Done | Count: ${count} | upsertedCount: ${upsertedCount}`)
+                move(xlsxOutputFolder + '/' + file, jsonImportedFolder + '/' + file, (err) => {
+                    console.log(err ? 'ERROR: ' + err : "Moved: " + file);
+                });
+                cb(); // NEXT
+            });
+        }, function end(err) {
+            console.log(`finished importing`);
+        });
+    } catch (ex) {
+        return console.log(ex);
+    }
 }
