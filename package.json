@@ -21,6 +21,7 @@
     "mongoose": "^4.13.7",
     "mongoose-type-email": "^1.0.5",
     "p-queue": "^2.3.0",
+    "sendy-api": "^0.1.0",
     "xls-to-json": "^0.4.0",
     "xlsx-to-json": "^0.3.0"
   },
