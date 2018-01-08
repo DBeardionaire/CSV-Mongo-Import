@@ -2,6 +2,7 @@ const fs = require('fs');
 const async = require('async');
 const parse = require('csv-parse/lib/sync');
 const asyncParse = require('csv-parse/lib');
+const csvStringifySync = require('csv-stringify/lib/sync');
 const es = require('event-stream');
 const JSONStream = require('JSONStream');
 // const getStream = require('./lib/getJsonStream');
@@ -49,16 +50,30 @@ const conn = mongoose.connect(url, options)
             console.log('Could NOT connect to database: ', err);
         } else {
             console.log('Connected to database');
-            importJsonX();
-            // exportListfromDB();
+            // tagUnsubscribers();
+            // exportListforFB();
         }
     });
 
 const schemas = require('./lib/schemas');
+const UNSUB_ENUM = schemas.UNSUB_ENUM;
 const publicUserSchema = schemas.publicUserSchema
 const PublicUser = mongoose.model('PublicUser', publicUserSchema);
 const unsubscriberSchema = schemas.unsubscriberSchema
 const Unsubscriber = mongoose.model('Unsubscriber', unsubscriberSchema);
+
+// TODO: Migration
+// var updates = { $unset: { steak: true }, $set: { eggs: 0 } };
+// // Note the `runValidators` option
+// Breakfast.update({}, updates, { runValidators: true }, function(err) {
+//   console.log(err.errors['steak'].message);
+//   console.log(err.errors['eggs'].message);
+//   /*
+//    * The above error messages output:
+//    * "Path `steak` is required."
+//    * "Path `eggs` (0) is less than minimum allowed value (2)."
+//    */
+// });
 
 const importJson = () => {
     run(function* seq() {
@@ -79,8 +94,9 @@ const importJson = () => {
 
                         isUnsubscriber(doc).then(isUnsub => {
                             if (doc && doc.License_Number && doc.Email) {
-                                doc.Unsubscribe = isUnsub ? true : false;
-
+                                doc.Unsubscribe = Boolean(isUnsub);
+                                doc.DoNotSend = isUnsub;
+                                
                                 PublicUser.findOneAndUpdate(
                                     {
                                         License_Number: doc.License_Number,
@@ -167,6 +183,7 @@ const mapToPublicUser = (doc) => {
             Zip: doc.ADDR_ZIP
         },
         Unsubscribe: false, // TODO: set from db
+        DoNotSend: '',
     }
 }
 
@@ -236,7 +253,17 @@ const csv2json = () => {
     })
 };
 
-// csv2json();
+const getUnsubType = (filename) => {
+    if (filename.includes('unsub')) {
+        return UNSUB_ENUM[1]
+    } else if (filename.includes('bounce')) {
+        return UNSUB_ENUM[2]
+    } else if (filename.includes('spam')) {
+        return UNSUB_ENUM[3]
+    } else {
+        return '';
+    }
+}
 
 const uploadUnsubscribers = () => {
     // process input files
@@ -265,9 +292,11 @@ const uploadUnsubscribers = () => {
                 let email = record[1];
                 console.log(email);
                 if (email) {
+                    let UnsubscribeType = getUnsubType(file);
                     let unsub = new Unsubscriber({
                         Name: name,
-                        Email: email
+                        Email: email,
+                        UnsubscribeType
                     })
                     unsub.save(function (err, doc) {
                         if (err) return console.log(err)
@@ -276,7 +305,10 @@ const uploadUnsubscribers = () => {
                             PublicUser.update({
                                 Email: doc.Email,
                             },
-                                { Unsubscribe: true },
+                                { 
+                                    Unsubscribe: true,
+                                    DoNotSend: UnsubscribeType
+                                },
                                 { multi: true, runValidators: true }, function (error, raw) {
                                     if (error) return console.log(error)
                                     console.log('The raw response from Mongo was ', raw);
@@ -308,13 +340,11 @@ const uploadUnsubscribers = () => {
     })
 }
 
-// uploadUnsubscribers();
-
 const isUnsubscriber = (doc) => {
     return Unsubscriber.findOne({ Email: doc.Email }, function (err, unsub) {
         if (!err) {
-            if (unsub) {
-                return true;
+            if (unsub) {                
+                return unsub.UnsubscribeType || UNSUB_ENUM[1]; // Defaults to UNSUBSCRIBE
             }
         }
 
@@ -328,9 +358,14 @@ const tagUnsubscribers = () => {
             PublicUser.update({
                 Email: unsub.Email,
             },
-                { Unsubscribe: true },
+                { // UPDATE TO
+                    Unsubscribe: true,
+                    DoNotSend: unsub.UnsubscribeType || UNSUB_ENUM[1],
+                },
                 { multi: true, runValidators: true }, function (error, raw) {
-                    if (error) return console.log(error)
+                    if (error) 
+                        return console.log(error)
+
                     console.log('The raw response from Mongo was ', raw);
                 })
         }) // Foreach
@@ -393,6 +428,84 @@ const exportListfromDB = (list = 'Sales-Expire-Mar-31-2018') => {
                 num++;
                 writer = getWriter();
                 counts[num] = 0;
+                run(writtenEmails.length);
+            }
+        });
+    }
+    run();
+}
+
+const exportListforFB = (list = 'Sendy-Campaign-Broker-Expire-Mar-31-2018') => {
+    console.log('Start Export', list);
+
+    const batch = 15000;
+    let rows = []; // for csv stringifier
+    let writtenEmails = [];
+    let num = 1;
+    let counts = {
+        [num]: 0
+    }
+    const getfileName = () => `${csvExportFolder}${list}_${num}.csv`
+    // Write to new .json file
+    const getWriter = () => fs.createWriteStream(getfileName(), {
+        flags: 'w', // 'a' means appending (old data will be preserved)
+        encoding: 'utf-8'
+    });
+
+    const run = (skipNum = 0) => {
+        let selectCols = 'First_Name Last_Name Email Phone Address.City Address.State Address.Zip'
+        //Expire_Date Address.City Address.State Address.Zip'
+        let writer = getWriter();
+        var cursor = PublicUser.find({
+            Unsubscribe: false
+        })
+            // .where()
+            .and([
+                { Expire_Date: new Date("2018-03-31") }, //T16:00:00.000-08:00
+                // { License_Type: "Sales Associate" },
+            ])
+            .or([
+                { License_Type: "Broker Sales" },
+                { License_Type: "Broker" }
+            ])
+            .skip(skipNum)
+            .limit(batch) // cant be used w/distinct
+            // .select('Name Email') // cant be used w/distinct
+            .select(selectCols) // cant be used w/distinct
+            .cursor();
+
+        cursor.on('data', function (doc) {
+            let contains = writtenEmails.some(e => e === doc.Email);
+            let row = doc.toObject({ hide: '_id' });
+            // let row = csvStringifySync(obj,{ header: true }); // `${doc.Name.replace(/,/g, '')},${doc.Email}\n`;
+            if (contains) {
+                console.log(`Duplicate: ${row.Email}`);
+                writtenEmails.push(doc.Email);
+                return;
+            }
+            // console.log(row);
+            writtenEmails.push(doc.Email);
+            // writer.write(row);
+            row.City = row.Address.City
+            row.State = row.Address.State;
+            row.Zip = row.Address.Zip;
+            delete row.Address;
+            rows.push(row);
+            counts[num]++;
+        });
+
+        cursor.on('close', function () {
+            if (rows.length) {
+                let csv = csvStringifySync(rows,{ header: true });
+                writer.write(csv);
+            }
+            console.log('END Export', getfileName());
+            let check = counts[num]
+            if (check && check > 0) {
+                num++;
+                writer = getWriter();
+                counts[num] = 0;
+                rows = [];
                 run(writtenEmails.length);
             }
         });
