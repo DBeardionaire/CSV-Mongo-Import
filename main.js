@@ -50,6 +50,8 @@ const conn = mongoose.connect(url, options)
             console.log('Could NOT connect to database: ', err);
         } else {
             console.log('Connected to database');
+            exportListfromDB();
+
             // tagUnsubscribers();
             // exportListforFB();
         }
@@ -372,7 +374,7 @@ const tagUnsubscribers = () => {
     })
 }
 
-const exportListfromDB = (list = 'Sales-Expire-Mar-31-2018') => {
+const exportListfromDB = (list = 'Sales-Upgrade-Broker-Jun-10-2018') => {
     console.log('Start Export', list);
 
     const batch = 5000;
@@ -391,12 +393,16 @@ const exportListfromDB = (list = 'Sales-Expire-Mar-31-2018') => {
     const run = (skipNum = 0) => {
         let writer = getWriter();
         var cursor = PublicUser.find({
-            Unsubscribe: false
+            Unsubscribe: false,
         })
             // .where()
             .and([
-                { Expire_Date: new Date("2018-03-31T16:00:00.000-08:00") },
+                // { Expire_Date: new Date("2018-03-31T16:00:00.000-08:00") },
                 { License_Type: "Sales Associate" },
+                { License_Status: "Active" },
+                { Email: { $ne: "" } },
+                // 2 years ago or further
+                { Origin_Date: { $lte: new Date(new Date().setFullYear(new Date().getFullYear() - 2)) } }
             ])
             // .or([
             //     { License_Type: "Broker Sales" },

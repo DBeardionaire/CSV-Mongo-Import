@@ -19,7 +19,7 @@
     "moment": "^2.20.1",
     "mongodb": "^2.2.29",
     "mongoose": "^4.13.7",
-    "mongoose-type-email": "^1.0.5",
+    "mongoose-type-email": "^1.0.9",
     "p-queue": "^2.3.0",
     "sendy-api": "^0.1.0",
     "xls-to-json": "^0.4.0",

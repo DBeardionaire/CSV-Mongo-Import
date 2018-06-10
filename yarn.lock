@@ -306,9 +306,9 @@ mongodb@^2.2.29:
     mongodb-core "2.1.13"
     readable-stream "2.2.7"
 
-mongoose-type-email@^1.0.5:
-  version "1.0.5"
-  resolved "https://registry.yarnpkg.com/mongoose-type-email/-/mongoose-type-email-1.0.5.tgz#89e797f98bc59aac2263fd7c9d5b669854aff679"
+mongoose-type-email@^1.0.9:
+  version "1.0.9"
+  resolved "https://registry.yarnpkg.com/mongoose-type-email/-/mongoose-type-email-1.0.9.tgz#98d4abeed8c6c80a97913e0c6edb4bdf844507dd"
 
 mongoose@^4.13.7:
   version "4.13.7"
