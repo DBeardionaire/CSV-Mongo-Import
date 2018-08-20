@@ -50,10 +50,9 @@ const conn = mongoose.connect(url, options)
             console.log('Could NOT connect to database: ', err);
         } else {
             console.log('Connected to database');
-            exportListfromDB();
-
-            // tagUnsubscribers();
-            // exportListforFB();
+            // csv2json();
+            // importJsonX(jsonInputFolder);
+            // exportListfromDB();
         }
     });
 
@@ -64,18 +63,6 @@ const PublicUser = mongoose.model('PublicUser', publicUserSchema);
 const unsubscriberSchema = schemas.unsubscriberSchema
 const Unsubscriber = mongoose.model('Unsubscriber', unsubscriberSchema);
 
-// TODO: Migration
-// var updates = { $unset: { steak: true }, $set: { eggs: 0 } };
-// // Note the `runValidators` option
-// Breakfast.update({}, updates, { runValidators: true }, function(err) {
-//   console.log(err.errors['steak'].message);
-//   console.log(err.errors['eggs'].message);
-//   /*
-//    * The above error messages output:
-//    * "Path `steak` is required."
-//    * "Path `eggs` (0) is less than minimum allowed value (2)."
-//    */
-// });
 
 const importJson = () => {
     run(function* seq() {
@@ -225,12 +212,13 @@ const csv2json = () => {
                 flags: 'a', // 'a' means appending (old data will be preserved)
                 encoding: 'utf-8'
             })
+            writer.write('[');
 
             // Use the writable stream api
             parser.on('readable', function () {
                 while (record = parser.read()) {
                     // console.log(record);
-                    writer.write(JSON.stringify(record) + '\n') // append string to your file    
+                    writer.write(JSON.stringify(record) + ',\n') // append string to your file    
                 }
             });
             // Catch any error
@@ -239,6 +227,7 @@ const csv2json = () => {
             });
 
             parser.on('finish', () => {
+                writer.write(']\n');
                 parser.end()
                 console.log('PARSER FINISH *** ', file);
                 console.log("The file was saved! ", newFilename);
@@ -548,9 +537,9 @@ const xlsx2Json = () => {
     })
 }
 
-const importJsonX = () => {
+const importJsonX = (srcFolder = xlsxOutputFolder) => {
     try {
-        let files = fs.readdirSync(xlsxOutputFolder);
+        let files = fs.readdirSync(srcFolder);
 
         async.eachLimit(files, 1, function (file, cb) {
             console.log(`importing: ${file}`);
@@ -558,7 +547,7 @@ const importJsonX = () => {
             let upsertedCount = 0;
             let count = 0;
 
-            let stream = getStream(xlsxOutputFolder + file)
+            let stream = getStream(srcFolder + file)
                 .pipe(es.mapSync((data) => {
                     let doc = mapToPublicUser(data);
 
@@ -593,7 +582,7 @@ const importJsonX = () => {
 
             stream.on('close', () => {
                 console.log(`${file} Stream Done | Count: ${count} | upsertedCount: ${upsertedCount}`)
-                move(xlsxOutputFolder + '/' + file, jsonImportedFolder + '/' + file, (err) => {
+                move(srcFolder + '/' + file, jsonImportedFolder + '/' + file, (err) => {
                     console.log(err ? 'ERROR: ' + err : "Moved: " + file);
                 });
                 cb(); // NEXT
